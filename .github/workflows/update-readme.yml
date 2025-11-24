@@ -1,0 +1,65 @@
+name: Auto Update README
+
+# 触发条件：当代码推送到 main 或 master 分支时
+# 如果你的主分支叫其他名字，请在这里修改
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # 允许手动点击按钮触发
+
+# 给予 Action 修改仓库内容的权限
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate README content
+        run: |
+          # 1. 写入固定的头部信息
+          echo "# html-tools" > README.md
+          echo "" >> README.md
+          echo "记录一些自用的 HTML 工具（by vibe coding）" >> README.md
+          echo "" >> README.md
+
+          # 2. 遍历根目录下的所有 .html 文件
+          # 使用 find 查找，sort 排序确保列表顺序稳定
+          find . -maxdepth 1 -name "*.html" | sort | while read -r filepath; do
+            filename=$(basename "$filepath")
+            
+            # 3. 提取 <title> 标签内容
+            # 使用 grep 和 sed 提取 title，支持大小写不敏感
+            title=$(grep -oEi '<title>.*</title>' "$filepath" | sed -E 's/<\/?title>//gi')
+
+            # 如果文件里没有 title 标签，则使用文件名作为 fallback
+            if [ -z "$title" ]; then
+              title="$filename"
+            fi
+
+            # 4. 追加到 README.md
+            echo "- [$title](./$filename)" >> README.md
+          done
+
+          # 打印生成的内容供日志检查
+          cat README.md
+
+      - name: Commit and Push changes
+        run: |
+          # 配置 git 用户信息（使用 GitHub Actions 机器人身份）
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 检查是否有变化，有变化才提交
+          if [[ -n $(git status -s README.md) ]]; then
+            git add README.md
+            git commit -m "docs: auto update readme with html tools list"
+            git push
+          else
+            echo "No changes in README.md, skipping push."
+          fi
