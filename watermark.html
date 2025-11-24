@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>批量图片水印工具 (全屏铺满)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --panel-bg: #ffffff;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            display: flex;
+            height: 100vh;
+            color: #334155;
+        }
+
+        /* 左侧控制面板 */
+        .sidebar {
+            width: 320px;
+            background: var(--panel-bg);
+            padding: 20px;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .control-group label {
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .control-group span.value {
+            font-weight: normal;
+            color: #64748b;
+        }
+
+        input[type="text"], input[type="color"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        /* 按钮样式 */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.2s;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        .btn-primary:disabled { background-color: #93c5fd; cursor: not-allowed; }
+
+        .btn-upload {
+            background-color: #e2e8f0;
+            color: #334155;
+            display: block;
+            position: relative;
+        }
+        .btn-upload input {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        /*以此右侧预览区 */
+        .main-area {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .img-card {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .img-wrapper {
+            width: 100%;
+            height: 200px;
+            background: #eee;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+
+        .img-wrapper img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .img-info {
+            font-size: 0.8rem;
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* 加载遮罩 */
+        .loading-overlay {
+            position: fixed;
+            top:0; left:0; width:100%; height:100%;
+            background: rgba(255,255,255,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingMsg">处理中...</div>
+
+<div class="sidebar">
+    <h2>💧 水印设置</h2>
+
+    <button class="btn btn-upload">
+        📂 选择图片 (支持多选)
+        <input type="file" id="fileInput" multiple accept="image/*">
+    </button>
+
+    <div class="control-group">
+        <label>水印内容</label>
+        <input type="text" id="wmText" value="仅供资料审核使用">
+    </div>
+
+    <div class="control-group">
+        <label>字体颜色 <span class="value" id="valColor">#aaaaaa</span></label>
+        <input type="color" id="wmColor" value="#aaaaaa">
+    </div>
+
+    <div class="control-group">
+        <label>字体大小 (px) <span class="value" id="valSize">24</span></label>
+        <input type="range" id="wmSize" min="10" max="100" value="24">
+    </div>
+
+    <div class="control-group">
+        <label>透明度 <span class="value" id="valOpacity">0.3</span></label>
+        <input type="range" id="wmOpacity" min="0.1" max="1" step="0.1" value="0.3">
+    </div>
+
+    <div class="control-group">
+        <label>旋转角度 (°)<span class="value" id="valAngle">-30</span></label>
+        <input type="range" id="wmAngle" min="-90" max="90" value="-30">
+    </div>
+
+    <div class="control-group">
+        <label>间距 X (px) <span class="value" id="valGapX">100</span></label>
+        <input type="range" id="wmGapX" min="20" max="300" value="100">
+    </div>
+    
+    <div class="control-group">
+        <label>间距 Y (px) <span class="value" id="valGapY">100</span></label>
+        <input type="range" id="wmGapY" min="20" max="300" value="100">
+    </div>
+
+    <button class="btn btn-primary" id="downloadBtn" disabled onclick="downloadAll()">
+        ⬇️ 打包下载所有图片
+    </button>
+</div>
+
+<div class="main-area">
+    <div class="header">
+        <h3>预览区 <span id="countLabel">(0 张)</span></h3>
+    </div>
+    <div class="gallery" id="gallery">
+        </div>
+</div>
+
+<script>
+    // 状态存储
+    let originalFiles = []; // 存储原始 File 对象
+    let processedBlobs = []; // 存储处理后的 Blob 对象，用于下载
+
+    // DOM 元素
+    const els = {
+        fileInput: document.getElementById('fileInput'),
+        gallery: document.getElementById('gallery'),
+        loading: document.getElementById('loadingMsg'),
+        countLabel: document.getElementById('countLabel'),
+        downloadBtn: document.getElementById('downloadBtn'),
+        inputs: {
+            text: document.getElementById('wmText'),
+            color: document.getElementById('wmColor'),
+            size: document.getElementById('wmSize'),
+            opacity: document.getElementById('wmOpacity'),
+            angle: document.getElementById('wmAngle'),
+            gapX: document.getElementById('wmGapX'),
+            gapY: document.getElementById('wmGapY'),
+        },
+        labels: {
+            color: document.getElementById('valColor'),
+            size: document.getElementById('valSize'),
+            opacity: document.getElementById('valOpacity'),
+            angle: document.getElementById('valAngle'),
+            gapX: document.getElementById('valGapX'),
+            gapY: document.getElementById('valGapY'),
+        }
+    };
+
+    // 监听文件上传
+    els.fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            originalFiles = Array.from(e.target.files);
+            els.countLabel.textContent = `(${originalFiles.length} 张)`;
+            els.downloadBtn.disabled = false;
+            processAllImages();
+        }
+    });
+
+    // 监听参数变化（添加防抖，避免卡顿）
+    let debounceTimer;
+    const settingsIds = Object.keys(els.inputs);
+    settingsIds.forEach(key => {
+        els.inputs[key].addEventListener('input', (e) => {
+            // 更新数值显示
+            if (els.labels[key]) els.labels[key].textContent = e.target.value;
+            
+            // 防抖重绘
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                processAllImages();
+            }, 300); // 300ms 延迟
+        });
+    });
+
+    // 核心功能：处理所有图片
+    async function processAllImages() {
+        if (originalFiles.length === 0) return;
+
+        showLoading(true);
+        els.gallery.innerHTML = ''; // 清空画廊
+        processedBlobs = []; // 清空下载缓存
+
+        // 获取当前设置
+        const config = {
+            text: els.inputs.text.value || '水印文字',
+            color: els.inputs.color.value,
+            size: parseInt(els.inputs.size.value),
+            opacity: parseFloat(els.inputs.opacity.value),
+            angle: parseInt(els.inputs.angle.value),
+            gapX: parseInt(els.inputs.gapX.value),
+            gapY: parseInt(els.inputs.gapY.value),
+        };
+
+        // 并行处理还是串行？为了不卡死UI，使用异步处理
+        for (let i = 0; i < originalFiles.length; i++) {
+            const file = originalFiles[i];
+            try {
+                const result = await addWatermark(file, config);
+                
+                // 保存 Blob 用于下载
+                processedBlobs.push({
+                    name: file.name,
+                    blob: result.blob
+                });
+
+                // 创建预览 DOM
+                const card = document.createElement('div');
+                card.className = 'img-card';
+                card.innerHTML = `
+                    <div class="img-wrapper">
+                        <img src="${result.dataUrl}" alt="${file.name}">
+                    </div>
+                    <div class="img-info">${file.name}</div>
+                `;
+                els.gallery.appendChild(card);
+
+            } catch (err) {
+                console.error("处理图片失败:", file.name, err);
+            }
+        }
+
+        showLoading(false);
+    }
+
+    // 核心算法：Canvas 绘制平铺水印
+    function addWatermark(file, config) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    // 设置画布为原图大小
+                    const w = img.width;
+                    const h = img.height;
+                    canvas.width = w;
+                    canvas.height = h;
+
+                    // 1. 绘制原图
+                    ctx.drawImage(img, 0, 0);
+
+                    // 2. 配置水印样式
+                    ctx.font = `${config.size}px Arial`;
+                    ctx.fillStyle = config.color;
+                    ctx.globalAlpha = config.opacity;
+                    ctx.textBaseline = 'middle';
+                    ctx.textAlign = 'center';
+
+                    // 3. 计算平铺逻辑
+                    // 为了支持旋转后依然铺满，我们需要在一个足够大的区域内循环绘制
+                    // 计算对角线长度，确保旋转覆盖
+                    const diag = Math.sqrt(w * w + h * h);
+                    
+                    // 移动坐标系到中心
+                    ctx.translate(w / 2, h / 2);
+                    // 旋转
+                    ctx.rotate(config.angle * Math.PI / 180);
+                    // 移回左上角 (注意：现在是相对于旋转后的坐标系)
+                    ctx.translate(-diag, -diag);
+
+                    // 测算文字宽度
+                    const textMetrics = ctx.measureText(config.text);
+                    const txtWidth = textMetrics.width;
+                    const stepX = txtWidth + config.gapX;
+                    const stepY = config.size + config.gapY;
+
+                    // 在旋转后的超大矩形内循环绘制
+                    // 范围从 0 到 2*diag，确保覆盖整个旋转区域
+                    for (let y = 0; y < diag * 2; y += stepY) {
+                        for (let x = 0; x < diag * 2; x += stepX) {
+                            // 这里加一点交错偏移，让水印看起来更像“砖墙”效果（可选）
+                            const offsetX = (y / stepY) % 2 === 0 ? 0 : stepX / 2;
+                            ctx.fillText(config.text, x + offsetX, y);
+                        }
+                    }
+
+                    // 导出结果
+                    canvas.toBlob((blob) => {
+                        resolve({
+                            dataUrl: canvas.toDataURL('image/jpeg', 0.85), // 预览用
+                            blob: blob // 下载用
+                        });
+                    }, 'image/jpeg', 0.95);
+                };
+                img.onerror = reject;
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // 批量下载
+    function downloadAll() {
+        if (processedBlobs.length === 0) return;
+
+        const zip = new JSZip();
+        const folder = zip.folder("watermarked_images");
+
+        processedBlobs.forEach(item => {
+            folder.file("watermarked_" + item.name, item.blob);
+        });
+
+        showLoading(true);
+        zip.generateAsync({type:"blob"}).then(function(content) {
+            saveAs(content, "images_watermarked.zip");
+            showLoading(false);
+        });
+    }
+
+    function showLoading(show) {
+        els.loading.style.display = show ? 'flex' : 'none';
+    }
+</script>
+
+</body>
+</html>
