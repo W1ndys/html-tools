@@ -155,7 +155,8 @@
             scene.fog = new THREE.FogExp2(0x000000, 0.0005);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 4000);
-            camera.position.z = 750; // 再次拉远相机，以便容纳上下两部分
+            // 根据屏幕比例调整相机距离：竖屏（移动端）需要更远的距离来容纳内容
+            camera.position.z = window.innerWidth < window.innerHeight ? 1300 : 750;
 
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -243,7 +244,7 @@
             canvas.height = canvasHeight;
             const ctx = canvas.getContext('2d');
 
-            ctx.font = '900 240px Arial Black';
+            ctx.font = '900 150px Arial Black';
             ctx.fillStyle = '#fff';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -430,6 +431,9 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            
+            // 窗口大小改变时也调整相机距离
+            camera.position.z = window.innerWidth < window.innerHeight ? 1300 : 750;
         }
 
         initThree();
